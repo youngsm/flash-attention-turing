@@ -27,6 +27,7 @@ if sys.platform == "win32":
         nvcc_flags.extend(["-Xcompiler", "/Zc:preprocessor"])
 setup(
     name="flash_attn_turing",
+    version="0.1.0",
     ext_modules=[
         CUDAExtension(
             name="flash_attn_turing",

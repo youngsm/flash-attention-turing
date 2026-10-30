@@ -52,22 +52,14 @@ inline __device__ void compute_dot_do_o(half_t* o_ptr,
     const BlockInfo binfo(max_seqlen_q, max_seqlen_q, bidb, cu_seqlens_q, cu_seqlens_q);
     const int actual_seqlen_q = binfo.actual_seqlen_q;
 
-    int do_o_offset = binfo.q_offset(num_heads * head_dim, bidb) + blockIdx.z * 32 * num_heads * head_dim + blockIdx.y * head_dim;
-    int d_offset = bidb * num_heads * max_seqlen_q + blockIdx.y * max_seqlen_q + blockIdx.z * 32;
+    int64_t do_o_offset = binfo.q_offset(num_heads * head_dim, bidb) + int64_t(blockIdx.z) * 32 * num_heads * head_dim + blockIdx.y * head_dim;
+    int64_t d_offset = lse_offset(cu_seqlens_q, batch_size, num_heads, max_seqlen_q, bidb, blockIdx.y) + blockIdx.z * 32;
 
     // each threadblock computes a 32 x headdim block
     // each warp computes a single row
-    // for headdim = 64, each thread computes 2 elements
-    // for headdim = 128, each thread computes 4 elements
+    // each thread computes headdim / 32 elements
     constexpr int kHeadDim = Kernel_traits::kHeadDim;
-    int elements_per_thread = 0;
-    if constexpr (kHeadDim == 64) {
-        elements_per_thread = 2;
-    } else if constexpr (kHeadDim == 96) {
-        elements_per_thread = 3;
-    } else {
-        elements_per_thread = 4;
-    }
+    constexpr int elements_per_thread = kHeadDim / 32;
 
 
     int thread_row = warp_id;

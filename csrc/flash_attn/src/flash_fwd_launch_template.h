@@ -4,6 +4,7 @@
 #include "flash_fwd_kernel.h"
 #include <cutlass/numeric_types.h>
 #include "static_switch.h"
+#include <ATen/cuda/CUDAContext.h>
 using half_t = cutlass::half_t;
 
 template <typename Kernel_traits, bool Is_causal, bool Is_even_MN>
@@ -63,11 +64,12 @@ void run_flash_fwd(Flash_fwd_params &params) {
     dim3 dimGrid(num_m_block, params.b, params.h);
     dim3 dimBlock(256);
     int maxbytes = 65536;
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
 
     BOOL_SWITCH(is_even_MN, Is_even_MN, [&] {
         cudaFuncSetAttribute(flash_fwd_kernel<Kernel_traits, Is_causal, Is_even_MN>, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
-        flash_fwd_kernel<Kernel_traits, Is_causal, Is_even_MN><<<dimGrid, dimBlock, maxbytes>>>(params.q_ptr,
+        flash_fwd_kernel<Kernel_traits, Is_causal, Is_even_MN><<<dimGrid, dimBlock, maxbytes, stream>>>(params.q_ptr,
                                                                                     params.k_ptr,
                                                                                     params.v_ptr,
                                                                                     params.o_ptr,
@@ -107,6 +109,18 @@ void run_mha_fwd_hdim96(Flash_fwd_params &params) {
     constexpr static int Headdim = 96;
     constexpr static int kBlockM = 128;
     constexpr static int kBlockN = 64;
+    constexpr static int kNWarps = 8;
+    run_flash_fwd<Flash_fwd_kernel_traits<Headdim, kBlockM, kBlockN, kNWarps>, Is_causal>(params);
+
+
+}
+
+
+template<bool Is_causal>
+void run_mha_fwd_hdim32(Flash_fwd_params &params) {
+    constexpr static int Headdim = 32;
+    constexpr static int kBlockM = 128;
+    constexpr static int kBlockN = 128;
     constexpr static int kNWarps = 8;
     run_flash_fwd<Flash_fwd_kernel_traits<Headdim, kBlockM, kBlockN, kNWarps>, Is_causal>(params);
 

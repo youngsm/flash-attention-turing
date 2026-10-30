@@ -8,7 +8,7 @@ import subprocess
 this_dir = os.path.dirname(os.path.abspath(__file__))
 
 
-if os.path.isdir(".git"):
+if os.path.isdir(".git") and not os.path.isdir("csrc/cutlass/include"):
     subprocess.run(["git", "submodule", "update", "--init", "csrc/cutlass"], check=True)
 
 nvcc_flags = ["-std=c++17",
@@ -31,6 +31,10 @@ setup(
         CUDAExtension(
             name="flash_attn_turing",
             sources=["csrc/flash_attn/flash_api.cpp",
+                     "csrc/flash_attn/src/flash_fwd_hdim32_fp16_sm75.cu",
+                     "csrc/flash_attn/src/flash_fwd_hdim32_fp16_causal_sm75.cu",
+                     "csrc/flash_attn/src/flash_bwd_hdim32_fp16_sm75.cu",
+                     "csrc/flash_attn/src/flash_bwd_hdim32_fp16_causal_sm75.cu",
                      "csrc/flash_attn/src/flash_fwd_hdim64_fp16_sm75.cu",
                      "csrc/flash_attn/src/flash_fwd_hdim64_fp16_causal_sm75.cu",
                      "csrc/flash_attn/src/flash_fwd_hdim96_fp16_sm75.cu",

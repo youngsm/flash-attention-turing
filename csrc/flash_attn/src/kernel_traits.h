@@ -62,7 +62,7 @@ struct Flash_fwd_kernel_traits : public Base {
         Tile<_128, _32, _8>>;
 
     using SmemLayoutAtomQK = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         decltype(composition(Swizzle<2, 3, 3>{}, Layout<Shape<_8, _32>, Stride<_32, _1>>{})),
         decltype(composition(Swizzle<3, 3, 3>{}, Layout<Shape<_16, _64>, Stride<_64, _1>>{}))
     >;
@@ -87,7 +87,7 @@ struct Flash_fwd_kernel_traits : public Base {
     //     Shape<Int<kHeadDim>, Int<kBlockN>>{}));
 
     using SmemLayoutAtomV = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         decltype(composition(Swizzle<2, 3, 3>{}, Layout<Shape<_8, _32>, Stride<_32, _1>>{})),
         decltype(composition(Swizzle<3, 3, 3>{}, Layout<Shape<_16, _64>, Stride<_64, _1>>{}))
     >;
@@ -101,19 +101,19 @@ struct Flash_fwd_kernel_traits : public Base {
 
 
     using GmemLayoutAtomQK = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         Layout<Shape<_64, _4>, Stride<_4, _1>>,
         Layout<Shape<_32, _8>, Stride<_8, _1>>>;
 
     // using GmemLayoutAtomV = Layout<Shape <_8, _32>, Stride<_1, _8>>;
     using GmemLayoutAtomV = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         Layout<Shape<_64, _4>, Stride<_4, _1>>,
         Layout<Shape<_32, _8>, Stride<_8, _1>>>;
 
 
     using GmemLayoutAtomO = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         Layout<Shape<_64, _4>, Stride<_4, _1>>,
         Layout<Shape<_32, _8>, Stride<_8, _1>>>;
 
@@ -165,7 +165,7 @@ struct Flash_bwd_kernel_traits : public Base {
     using TiledMma_dQ = TiledMMA<
         typename Base::MMA_Atom_Arch,
         Layout<Shape<_2, Int<kNWarps/2>, _1>>,
-        std::conditional_t<kHeadDim == 96,
+        std::conditional_t<kHeadDim % 64 != 0,
             Tile<Int<kBlockM>, Int<32>, _8>,
             Tile<Int<kBlockM>, Int<kHeadDim>, _8>
         >>;
@@ -173,7 +173,7 @@ struct Flash_bwd_kernel_traits : public Base {
     using TiledMma_dKdV = TiledMMA<
         typename Base::MMA_Atom_Arch,
         Layout<Shape<_2, Int<kNWarps/2>, _1>>,
-        std::conditional_t<kHeadDim == 96,
+        std::conditional_t<kHeadDim % 64 != 0,
             Tile<Int<kBlockN>, Int<32>, _8>,
             Tile<Int<kBlockN>, Int<kHeadDim>, _8>
         >>;
@@ -195,7 +195,7 @@ struct Flash_bwd_kernel_traits : public Base {
     // QKV
     // swizzle atom
     using SmemLayoutAtomQKV = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         decltype(composition(Swizzle<2, 3, 3>{}, Layout<Shape<_8, _32>, Stride<_32, _1>>{})),
         decltype(composition(Swizzle<3, 3, 3>{}, Layout<Shape<_16, _64>, Stride<_64, _1>>{}))
     >;
@@ -210,7 +210,7 @@ struct Flash_bwd_kernel_traits : public Base {
 
     // swizzle K
     using SmemLayoutAtomKV = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         decltype(composition(Swizzle<2, 3, 3>{}, Layout<Shape<Int<8>, Int<32>>, Stride<Int<32>, _1>>{})),
         decltype(composition(Swizzle<3, 3, 3>{}, Layout<Shape<Int<16>, Int<64>>, Stride<Int<64>, _1>>{}))
     >;
@@ -248,7 +248,7 @@ struct Flash_bwd_kernel_traits : public Base {
     using SmemCopyAtomKt = std::conditional_t<
         kHeadDim == 64,
         Copy_Atom<SM75_U16x4_LDSM_T, elem_type>,
-        std::conditional_t<kHeadDim == 96,
+        std::conditional_t<kHeadDim % 64 != 0,
             Copy_Atom<SM75_U16x2_LDSM_T, elem_type>,
             Copy_Atom<SM75_U16x8_LDSM_T, elem_type>
         >
@@ -257,7 +257,7 @@ struct Flash_bwd_kernel_traits : public Base {
     using SmemCopyAtomQt = std::conditional_t<
         kHeadDim == 64,
         Copy_Atom<SM75_U16x4_LDSM_T, elem_type>,
-        std::conditional_t<kHeadDim == 96,
+        std::conditional_t<kHeadDim % 64 != 0,
             Copy_Atom<SM75_U16x2_LDSM_T, elem_type>,
             Copy_Atom<SM75_U16x8_LDSM_T, elem_type>
         >
@@ -267,7 +267,7 @@ struct Flash_bwd_kernel_traits : public Base {
     using SmemCopyAtomdOt = std::conditional_t<
         kHeadDim == 64,
         Copy_Atom<SM75_U16x4_LDSM_T, elem_type>,
-        std::conditional_t<kHeadDim == 96,
+        std::conditional_t<kHeadDim % 64 != 0,
             Copy_Atom<SM75_U16x2_LDSM_T, elem_type>,
             Copy_Atom<SM75_U16x8_LDSM_T, elem_type>
         >
@@ -276,7 +276,7 @@ struct Flash_bwd_kernel_traits : public Base {
     // using SmemCopyAtomQtdOtPtdSt = Copy_Atom<SM75_U16x8_LDSM_T, elem_type>;
 
     using SmemCopyAtomPtdSt = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         Copy_Atom<SM75_U16x2_LDSM_T, elem_type>,
         Copy_Atom<SM75_U16x8_LDSM_T, elem_type>
     >;
@@ -287,7 +287,7 @@ struct Flash_bwd_kernel_traits : public Base {
 
     //gmem loads
     using GmemLayoutAtom = std::conditional_t<
-        kHeadDim == 96,
+        kHeadDim % 64 != 0,
         Layout<Shape<_64, _4>, Stride<_4, _1>>,
         Layout<Shape<_32, _8>, Stride<_8, _1>>>;
 

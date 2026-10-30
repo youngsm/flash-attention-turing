@@ -60,7 +60,7 @@ inline __device__ void compute_attn_1rowblock(
 
     Tensor mQ = make_tensor(make_gmem_ptr(q + binfo.q_offset(num_heads * head_dim, bidb)),
                             make_shape(seqlen_q, num_heads, head_dim),
-                            make_stride(num_heads * head_dim, head_dim, Int<1>{}));
+                            make_stride(int64_t(num_heads) * head_dim, int64_t(head_dim), Int<1>{}));
 
     Tensor gQ = local_tile(mQ(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
                            make_coord(m_block, 0));
@@ -70,7 +70,7 @@ inline __device__ void compute_attn_1rowblock(
 
     Tensor mK = make_tensor(make_gmem_ptr(k + binfo.k_offset(num_heads_k * head_dim, bidb)),
                             make_shape(seqlen_k, num_heads_k, head_dim),
-                            make_stride(num_heads_k * head_dim, head_dim, Int<1>{}));
+                            make_stride(int64_t(num_heads_k) * head_dim, int64_t(head_dim), Int<1>{}));
 
     Tensor gK = local_tile(mK(_, bidh / h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));
@@ -79,7 +79,7 @@ inline __device__ void compute_attn_1rowblock(
 
     Tensor mV = make_tensor(make_gmem_ptr(v + binfo.k_offset(num_heads_k * head_dim, bidb)),
                             make_shape(seqlen_k, num_heads_k, head_dim),
-                            make_stride(num_heads_k * head_dim, head_dim, Int<1>{}));
+                            make_stride(int64_t(num_heads_k) * head_dim, int64_t(head_dim), Int<1>{}));
 
     Tensor gV = local_tile(mV(_, bidh / h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));
@@ -87,17 +87,16 @@ inline __device__ void compute_attn_1rowblock(
 
     Tensor mO = make_tensor(make_gmem_ptr(o + binfo.q_offset(num_heads * head_dim, bidb)),
                             make_shape(seqlen_q, num_heads, head_dim),
-                            make_stride(num_heads * head_dim, head_dim, Int<1>{}));
+                            make_stride(int64_t(num_heads) * head_dim, int64_t(head_dim), Int<1>{}));
 
     Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
                            make_coord(m_block, 0));
 
     // L = m + log l
-    Tensor mL = make_tensor(make_gmem_ptr(reinterpret_cast<float*>(l)),
-                             make_shape(batch_size, num_heads, max_seqlen_q),
-                             make_stride(max_seqlen_q * num_heads, max_seqlen_q, Int<1>{}));
+    Tensor mL = make_tensor(make_gmem_ptr(l + lse_offset(cu_seqlens_q, batch_size, num_heads, max_seqlen_q, bidb, bidh)),
+                             make_shape(max_seqlen_q));
 
-    Tensor gL = local_tile(mL(bidb, bidh, _), Shape<Int<kBlockM>>{},
+    Tensor gL = local_tile(mL, Shape<Int<kBlockM>>{},
                            make_coord(m_block));
 
 

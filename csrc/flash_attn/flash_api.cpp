@@ -1,6 +1,18 @@
 #include <torch/extension.h>
+#include <c10/cuda/CUDAGuard.h>
 #include "flash.h"
 #include "static_switch.h"
+
+// What the varlen kernels read: contiguous fp16 [total, heads, head_dim] with a head dim they're built for.
+void check_varlen_inputs(std::initializer_list<at::Tensor> tensors) {
+    for (const auto &t : tensors) {
+        TORCH_CHECK(t.is_cuda() && t.scalar_type() == torch::kFloat16, "q, k, v, out and dout must be fp16 CUDA tensors");
+        TORCH_CHECK(t.is_contiguous(), "q, k, v, out and dout must be contiguous");
+    }
+    const int head_size = tensors.begin()->size(2);
+    TORCH_CHECK(head_size == 32 || head_size == 64 || head_size == 96 || head_size == 128,
+                "head_dim must be 32, 64, 96 or 128");
+}
 
 void set_params_fprop(Flash_fwd_params &params,
                       // sizes
@@ -342,8 +354,8 @@ mha_varlen_fwd(at::Tensor q,
     TORCH_CHECK(cu_seqlens_q.is_contiguous() && cu_seqlens_k.is_contiguous(),
                 "cu_seqlens_q/cu_seqlens_k must be contiguous");
     TORCH_CHECK(cu_seqlens_q.dim() == 1 && cu_seqlens_k.dim() == 1, "cu_seqlens_q/cu_seqlens_k must be rank-1");
-    TORCH_CHECK(cu_seqlens_q.numel() >= 2 && cu_seqlens_k.numel() >= 2,
-                "cu_seqlens_q/cu_seqlens_k must have at least 2 elements");
+    TORCH_CHECK(cu_seqlens_q.numel() >= 1 && cu_seqlens_k.numel() >= 1,
+                "cu_seqlens_q/cu_seqlens_k must have at least 1 element");
     const int batch_size = cu_seqlens_q.numel() - 1;
     TORCH_CHECK(cu_seqlens_k.numel() == batch_size + 1,
                 "cu_seqlens_k must have shape [batch_size + 1] with cumulative offsets");
@@ -352,13 +364,16 @@ mha_varlen_fwd(at::Tensor q,
     TORCH_CHECK(k.size(2) == v.size(2), "k and v head_dim must match");
     TORCH_CHECK(q.size(2) == k.size(2), "q/k/v head_dim must match");
     TORCH_CHECK(q.size(1) % k.size(1) == 0, "num_heads_q must be divisible by num_heads_k for GQA/MQA");
+    check_varlen_inputs({q, k, v});
+    at::cuda::CUDAGuard device_guard{q.device()};
 
     const int num_heads = q.size(1);
     const int num_heads_k = k.size(1);
     const int head_size = q.size(2);
 
     at::Tensor out = torch::zeros_like(q);
-    at::Tensor l = torch::zeros({batch_size, num_heads, max_seqlen_q}, q.options().dtype(torch::kFloat32));
+    // flash_attn's unpadded layout: [heads, total_q], with total_q = cu_seqlens_q[-1] = q.size(0)
+    at::Tensor l = torch::zeros({num_heads, q.size(0)}, q.options().dtype(torch::kFloat32));
 
 
     // at::Tensor o = torch::zeros(q.sizes(), q.options().dtype(torch::kFloat16));
@@ -385,7 +400,9 @@ mha_varlen_fwd(at::Tensor q,
         is_causal
     );
 
-    run_mha_fwd(params);
+    if (batch_size > 0 && max_seqlen_q > 0 && max_seqlen_k > 0) {  // else there are no rows; an empty grid can't launch
+        run_mha_fwd(params);
+    }
 
     return {out, l};
 }
@@ -411,8 +428,8 @@ mha_varlen_bwd(at::Tensor q,
     TORCH_CHECK(cu_seqlens_q.is_contiguous() && cu_seqlens_k.is_contiguous(),
                 "cu_seqlens_q/cu_seqlens_k must be contiguous");
     TORCH_CHECK(cu_seqlens_q.dim() == 1 && cu_seqlens_k.dim() == 1, "cu_seqlens_q/cu_seqlens_k must be rank-1");
-    TORCH_CHECK(cu_seqlens_q.numel() >= 2 && cu_seqlens_k.numel() >= 2,
-                "cu_seqlens_q/cu_seqlens_k must have at least 2 elements");
+    TORCH_CHECK(cu_seqlens_q.numel() >= 1 && cu_seqlens_k.numel() >= 1,
+                "cu_seqlens_q/cu_seqlens_k must have at least 1 element");
     const int64_t batch_size = cu_seqlens_q.numel() - 1;
     TORCH_CHECK(cu_seqlens_k.numel() == batch_size + 1,
                 "cu_seqlens_k must have shape [batch_size + 1] with cumulative offsets");
@@ -424,14 +441,16 @@ mha_varlen_bwd(at::Tensor q,
 
     TORCH_CHECK(out.sizes() == q.sizes(), "out must match q shape");
     TORCH_CHECK(dout.sizes() == q.sizes(), "dout must match q shape");
-    TORCH_CHECK(l.dim() == 3, "l must be rank-3 for varlen_bwd");
+    check_varlen_inputs({q, k, v, out, dout});
+    TORCH_CHECK(l.scalar_type() == torch::kFloat32 && l.is_contiguous(), "l must be contiguous fp32");
+    at::cuda::CUDAGuard device_guard{q.device()};
 
     const int64_t num_heads = q.size(1);
     const int64_t num_heads_k = k.size(1);
     const int64_t head_size = q.size(2);
     const int64_t total_k = k.size(0);
-    TORCH_CHECK(l.size(0) == batch_size && l.size(1) == num_heads && l.size(2) == max_seqlen_q,
-                "l must have shape [batch_size, nheads_q, max_seqlen_q]");
+    TORCH_CHECK(l.dim() == 2 && l.size(0) == num_heads && l.size(1) == q.size(0),
+                "l must have shape [nheads_q, total_q]");
 
     at::Tensor dq = torch::zeros_like(q);
     at::Tensor dk = torch::zeros_like(k);
@@ -461,7 +480,9 @@ mha_varlen_bwd(at::Tensor q,
         is_causal
     );
 
-    run_mha_bwd(params);
+    if (batch_size > 0 && max_seqlen_q > 0 && max_seqlen_k > 0) {
+        run_mha_bwd(params);
+    }
 
     if (num_heads != num_heads_k) {
         torch::sum_out(

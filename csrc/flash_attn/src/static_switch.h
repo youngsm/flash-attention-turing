@@ -28,7 +28,10 @@
 
   #define HEADDIM_SWITCH(HEADDIM, ...)        \
     [&] {                                     \
-      if (HEADDIM == 64) {                   \
+      if (HEADDIM == 32) {                   \
+        constexpr static int kHeadDim = 32;  \
+        return __VA_ARGS__();                 \
+      } else if (HEADDIM == 64) {            \
         constexpr static int kHeadDim = 64;  \
         return __VA_ARGS__();                 \
       } else if (HEADDIM == 96) {            \
